@@ -21,9 +21,9 @@ class DBManager:
                           )''')
         self.conn.commit()
 
-    def add_employee(self, name, age):
+    def add_employee(self, name):
         cursor = self.conn.cursor()
-        cursor.execute("INSERT INTO employees (name, age) VALUES (?, ?)", (name, age))
+        cursor.execute("INSERT INTO employees (name) VALUES (?)", (name,))
         self.conn.commit()
 
     def fetch_employees(self):
@@ -31,9 +31,9 @@ class DBManager:
         cursor.execute("SELECT * FROM employees")
         return cursor.fetchall()
 
-    def delete_employee(self, employee_id):
+    def delete_employee(self, name):
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+        cursor.execute("DELETE FROM employees WHERE name = (?)", (name,))
         self.conn.commit()
 
     def add_schedule(self, employee_id, day, time):
