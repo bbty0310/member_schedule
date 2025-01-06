@@ -1,8 +1,10 @@
 from PyQt5.QtWidgets import QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QPushButton, QDialog, \
-    QFormLayout, QLineEdit, QDialogButtonBox, QHBoxLayout, QListWidget, QListWidgetItem, QComboBox, QLabel
+    QFormLayout, QLineEdit, QDialogButtonBox, QHBoxLayout, QListWidget, QListWidgetItem, QComboBox, QLabel, QMenuBar, QMenu, QAction
 from PyQt5.QtCore import Qt, QMimeData
 from PyQt5.QtGui import QDrag, QDropEvent
 from db_manager import DBManager
+import pandas as pd
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -14,17 +16,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("직원 스케줄 관리")
         self.setGeometry(100, 100, 1000, 600)
 
-        # 스케줄 테이블 생성
         self.days = ["월", "화", "수", "목", "금", "토", "일"]
         self.times = [f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 18)]
         self.table = QTableWidget(len(self.times), len(self.days))
         self.table.setHorizontalHeaderLabels(self.days)
         self.table.setVerticalHeaderLabels(self.times)
         self.table.setAcceptDrops(True)
-        self.table.dragEnterEvent = self.drag_enter_event
-        self.table.dropEvent = self.drop_event
 
-        # 직원 리스트와 추가 버튼
         self.employee_list_layout = QVBoxLayout()
         self.employee_list = QListWidget()
         self.employee_list.setDragEnabled(True)
@@ -48,7 +46,17 @@ class MainWindow(QMainWindow):
         self.modify_time_button.clicked.connect(self.modify_times)
         self.employee_list_layout.addWidget(self.modify_time_button)
 
-        # 전체 레이아웃 설정 (8:2 비율)
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu('파일')
+
+        # 저장 액션 생성
+        save_action = QAction('저장', self)
+        save_action.setShortcut('Ctrl+S')
+        save_action.triggered.connect(self.save_all)
+
+        # 메뉴에 저장 액션 추가
+        file_menu.addAction(save_action)
+
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.table, 8)
         main_layout.addLayout(self.employee_list_layout, 2)
@@ -57,16 +65,16 @@ class MainWindow(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # 스케줄 데이터 로드
         self.load_schedule()
         self.load_employees()
 
     def load_schedule(self):
         schedules = self.db.fetch_schedule()
         for schedule in schedules:
-            name, day, time = schedule[1], schedule[2], schedule[3]
+            _, name, day, start_time, end_time = schedule
             col = self.days.index(day)
-            row = self.times.index(time)
+            time_range = f"{start_time}-{end_time}"
+            row = self.times.index(time_range)
             self.table.setItem(row, col, QTableWidgetItem(name))
 
     def load_employees(self):
@@ -76,22 +84,19 @@ class MainWindow(QMainWindow):
 
     def add_employee_to_ui(self, name):
         item = QListWidgetItem(name)
-        item.setData(Qt.UserRole, name)  # 데이터 저장
+        item.setData(Qt.UserRole, name)
         self.employee_list.addItem(item)
 
     def del_employee_to_ui(self):
-        selected_items = self.employee_list.selectedItems()  # 선택된 항목 가져오기
+        selected_items = self.employee_list.selectedItems()
         if not selected_items:
-            return  # 선택된 항목이 없으면 아무것도 하지 않음
+            return
         for item in selected_items:
-            self.employee_list.takeItem(self.employee_list.row(item))  # 항목 삭제
+            self.employee_list.takeItem(self.employee_list.row(item))
             name = item.data(Qt.UserRole)
-            self.db.delete_employee(name)  # 데이터베이스에서 직원 삭제
+            self.db.delete_employee(name)
 
     def export_to_excel(self):
-        # 엑셀 내보내기 기능 구현
-        import pandas as pd
-
         data = []
         for row in range(self.table.rowCount()):
             row_data = []
@@ -105,35 +110,11 @@ class MainWindow(QMainWindow):
         df.to_excel(file_path)
         print(f"스케줄이 {file_path}에 저장되었습니다.")
 
-    def drag_enter_event(self, event):
-        if event.mimeData().hasText():
-            event.accept()
-        else:
-            event.ignore()
-
-    def drop_event(self, event: QDropEvent):
-        if event.mimeData().hasText():
-            cursor_text = event.mimeData().text()
-            pos = self.table.viewport().mapFromGlobal(event.pos())
-            row = self.table.rowAt(pos.y())
-            col = self.table.columnAt(pos.x())
-            if row != -1 and col != -1:
-                existing_item = self.table.item(row, col)
-                if existing_item:
-                    existing_text = existing_item.text()
-                    updated_text = f"{existing_text}, {cursor_text}"
-                    self.table.setItem(row, col, QTableWidgetItem(updated_text))
-                else:
-                    self.table.setItem(row, col, QTableWidgetItem(cursor_text))
-            event.accept()
-        else:
-            event.ignore()
-
     def manage_employees(self):
         dialog = EmployeeDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            name, age = dialog.get_employee_data()
-            self.db.add_employee(name, age)
+            name = dialog.get_employee_data()
+            self.db.add_employee(name)
             self.add_employee_to_ui(name)
 
     def modify_times(self):
@@ -143,6 +124,27 @@ class MainWindow(QMainWindow):
             self.table.setRowCount(len(self.times))
             self.table.setVerticalHeaderLabels(self.times)
 
+    def save_all(self):
+        self.db.clear_schedule()
+
+        for row in range(self.table.rowCount()):
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                if item and item.text():
+                    employee_name = item.text()
+                    day = self.days[col]
+                    time_range = self.times[row]
+                    start_time, end_time = time_range.split('-')
+                    employee = next((emp for emp in self.db.fetch_employees() if emp[1] == employee_name), None)
+                    if employee:
+                        self.db.save_schedule(employee[0], day, start_time, end_time)
+
+        # 시간 저장
+        self.db.save_time_slots(self.times)
+
+        print("모든 변경사항이 저장되었습니다.")
+
+
 class EmployeeDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -150,16 +152,12 @@ class EmployeeDialog(QDialog):
         self.setGeometry(200, 200, 400, 300)
         self.db = parent.db
 
-        # 직원 추가 폼
         self.layout = QVBoxLayout()
         form_layout = QFormLayout()
         self.name_input = QLineEdit()
-        self.age_input = QLineEdit()
         form_layout.addRow("이름:", self.name_input)
-        form_layout.addRow("나이:", self.age_input)
         self.layout.addLayout(form_layout)
 
-        # 확인 및 취소 버튼
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
@@ -167,66 +165,101 @@ class EmployeeDialog(QDialog):
         self.setLayout(self.layout)
 
     def get_employee_data(self):
-        name = self.name_input.text().strip()
-        age = int(self.age_input.text().strip()) if self.age_input.text().isdigit() else 0
-        return name, age
+        return self.name_input.text().strip()
+
 
 class TimeDialog(QDialog):
     def __init__(self, parent=None, current_times=None):
         super().__init__(parent)
         self.setWindowTitle("시간 수정")
         self.setGeometry(200, 200, 400, 400)
-
         self.layout = QVBoxLayout()
-
         self.time_inputs = []
         self.hour_options = [f"{i:02d}" for i in range(24)]
         self.minute_options = [f"{i:02d}" for i in range(0, 60, 15)]
 
         if current_times:
             for time_range in current_times:
-                start_time, end_time = time_range.split("-")
-                start_hour, start_minute = start_time.split(":")
-                end_hour, end_minute = end_time.split(":")
+                self.add_time_row(time_range)
 
-                row_layout = QHBoxLayout()
+        button_layout = QHBoxLayout()
 
-                start_hour_cb = QComboBox()
-                start_hour_cb.addItems(self.hour_options)
-                start_hour_cb.setCurrentText(start_hour)
+        self.add_time_button = QPushButton("+")
+        self.del_time_button = QPushButton("-")
+        self.add_time_button.clicked.connect(self.add_time_row)
+        self.del_time_button.clicked.connect(self.del_time_row)
 
-                start_minute_cb = QComboBox()
-                start_minute_cb.addItems(self.minute_options)
-                start_minute_cb.setCurrentText(start_minute)
+        button_layout.addWidget(self.add_time_button)
+        button_layout.addWidget(self.del_time_button)
 
-                end_hour_cb = QComboBox()
-                end_hour_cb.addItems(self.hour_options)
-                end_hour_cb.setCurrentText(end_hour)
+        self.layout.addLayout(button_layout)
 
-                end_minute_cb = QComboBox()
-                end_minute_cb.addItems(self.minute_options)
-                end_minute_cb.setCurrentText(end_minute)
-
-                self.time_inputs.append((start_hour_cb, start_minute_cb, end_hour_cb, end_minute_cb))
-
-                tilde_label = QLabel("~")
-                tilde_label.setAlignment(Qt.AlignCenter)
-
-                # 레이아웃 배치
-                row_layout.addWidget(start_hour_cb)
-                row_layout.addWidget(start_minute_cb)
-                row_layout.addWidget(tilde_label)
-                row_layout.addWidget(end_hour_cb)
-                row_layout.addWidget(end_minute_cb)
-
-                self.layout.addLayout(row_layout)
-
-        # 확인 및 취소 버튼
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.layout.addWidget(self.buttons)
+
         self.setLayout(self.layout)
+
+    def add_time_row(self, time_range=None):
+        row_layout = QHBoxLayout()
+        start_hour_cb = QComboBox()
+        start_hour_cb.addItems(self.hour_options)
+        start_minute_cb = QComboBox()
+        start_minute_cb.addItems(self.minute_options)
+        end_hour_cb = QComboBox()
+        end_hour_cb.addItems(self.hour_options)
+        end_minute_cb = QComboBox()
+        end_minute_cb.addItems(self.minute_options)
+
+        if time_range:
+            start_time, end_time = time_range.split("-")
+            start_hour, start_minute = start_time.split(":")
+            end_hour, end_minute = end_time.split(":")
+            start_hour_cb.setCurrentText(start_hour)
+            start_minute_cb.setCurrentText(start_minute)
+            end_hour_cb.setCurrentText(end_hour)
+            end_minute_cb.setCurrentText(end_minute)
+        else:
+            start_hour_cb.setCurrentText("09")
+            start_minute_cb.setCurrentText("00")
+            end_hour_cb.setCurrentText("10")
+            end_minute_cb.setCurrentText("00")
+
+        self.time_inputs.append((start_hour_cb, start_minute_cb, end_hour_cb, end_minute_cb))
+
+        tilde_label = QLabel("~")
+        tilde_label.setAlignment(Qt.AlignCenter)
+
+        row_layout.addWidget(start_hour_cb)
+        row_layout.addWidget(start_minute_cb)
+        row_layout.addWidget(tilde_label)
+        row_layout.addWidget(end_hour_cb)
+        row_layout.addWidget(end_minute_cb)
+
+        self.layout.insertLayout(self.layout.count() - 2, row_layout)
+
+    def del_time_row(self):
+        if not self.time_inputs:
+            return
+
+        self.time_inputs.pop()
+
+        for i in range(self.layout.count() - 3, -1, -1):
+            item = self.layout.itemAt(i)
+            if isinstance(item, QHBoxLayout):
+                row_layout = item
+                break
+        else:
+            return
+
+        while row_layout.count():
+            item = row_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+        # 행 제거
+        self.layout.removeItem(row_layout)
 
     def get_times(self):
         times = []
