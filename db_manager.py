@@ -20,6 +20,11 @@ class DBManager:
                             end_time TEXT,
                             FOREIGN KEY (employee_id) REFERENCES employees (id)
                           )''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS time_slots (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            start_time TEXT NOT NULL,
+                            end_time TEXT NOT NULL
+                          )''')
         self.conn.commit()
 
     def add_employee(self, name):
@@ -34,6 +39,9 @@ class DBManager:
 
     def delete_employee(self, name):
         cursor = self.conn.cursor()
+        employee_id = self.get_employee_id(name)
+        if employee_id:
+            cursor.execute("DELETE FROM schedule WHERE employee_id = ?", (employee_id,))
         cursor.execute("DELETE FROM employees WHERE name = ?", (name,))
         self.conn.commit()
 
@@ -77,19 +85,19 @@ class DBManager:
 
     def save_time_slots(self, time_slots):
         cursor = self.conn.cursor()
+        # 기존 시간 슬롯 삭제
         cursor.execute("DELETE FROM time_slots")
         for time_slot in time_slots:
             start_time, end_time = time_slot.split('-')
             cursor.execute("INSERT INTO time_slots (start_time, end_time) VALUES (?, ?)", (start_time, end_time))
         self.conn.commit()
 
-    def save_time_slots(self, time_slots):
+    def fetch_time_slots(self):
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM time_slots")  # 기존 시간대 삭제
-        for time_slot in time_slots:
-            start_time, end_time = time_slot.split('-')
-            cursor.execute("INSERT INTO time_slots (start_time, end_time) VALUES (?, ?)", (start_time, end_time))
-        self.conn.commit()
+        cursor.execute("SELECT start_time, end_time FROM time_slots")
+        time_slots = [f"{start}-{end}" for start, end in cursor.fetchall()]
+        return time_slots
+
 
     def close(self):
         self.conn.close()

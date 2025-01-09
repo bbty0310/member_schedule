@@ -16,6 +16,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("직원 스케줄 관리")
         self.setGeometry(100, 100, 1000, 600)
 
+        self.load_times()
         self.days = ["월", "화", "수", "목", "금", "토", "일"]
         self.times = [f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 18)]
         self.table = QTableWidget(len(self.times), len(self.days))
@@ -67,6 +68,12 @@ class MainWindow(QMainWindow):
 
         self.load_schedule()
         self.load_employees()
+
+    def load_times(self):
+        """데이터베이스에서 시간 슬롯을 로드하고 기본 시간 설정."""
+        self.times = self.db.fetch_time_slots()  # DB에서 시간 슬롯 로드
+        if not self.times:  # 시간 슬롯이 비어 있다면 기본 시간 설정
+            self.times = [f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 18)]
 
     def load_schedule(self):
         schedules = self.db.fetch_schedule()
@@ -124,9 +131,9 @@ class MainWindow(QMainWindow):
             self.table.setRowCount(len(self.times))
             self.table.setVerticalHeaderLabels(self.times)
 
+    #스케줄 저장
     def save_all(self):
         self.db.clear_schedule()
-
         for row in range(self.table.rowCount()):
             for col in range(self.table.columnCount()):
                 item = self.table.item(row, col)
@@ -135,11 +142,13 @@ class MainWindow(QMainWindow):
                     day = self.days[col]
                     time_range = self.times[row]
                     start_time, end_time = time_range.split('-')
-                    employee = next((emp for emp in self.db.fetch_employees() if emp[1] == employee_name), None)
-                    if employee:
-                        self.db.save_schedule(employee[0], day, start_time, end_time)
+                    employee_id = self.db.get_employee_id(employee_name)
+                    if not employee_id:
+                        self.db.add_employee(employee_name)
+                        employee_id = self.db.get_employee_id(employee_name)
+                    self.db.save_schedule(employee_id, day, start_time, end_time)
 
-        # 시간 저장
+        # 시간 슬롯 저장
         self.db.save_time_slots(self.times)
 
         print("모든 변경사항이 저장되었습니다.")
